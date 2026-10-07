@@ -8,27 +8,28 @@ let pendingBest = null;
 let stats = { total:0, buenas:0, top_max:30 };
 
 async function send(msg, mint){
-  const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      chat_id:CHAT, 
-      text:msg, 
-      parse_mode:'HTML', 
-      disable_web_page_preview:true,
-      reply_markup:{
-        inline_keyboard:[[
-          {text:"🚀 Axiom", url:`https://axiom.trade/t/${mint}`},
-          {text:"💊 Pump", url:`https://pump.fun/coin/${mint}`}
-        ]]
-      }
-    })
-  });
-  const d = await r.json();
-  console.log('TG', d.ok ? 'OK' : JSON.stringify(d));
+  try{
+    const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        chat_id:CHAT, 
+        text:msg, 
+        parse_mode:'HTML', 
+        disable_web_page_preview:true,
+        reply_markup:{
+          inline_keyboard:[[
+            {text:"🚀 Axiom", url:`https://axiom.trade/t/${mint}`},
+            {text:"💊 Pump", url:`https://pump.fun/coin/${mint}`}
+          ]]
+        }
+      })
+    });
+    const d = await r.json();
+    console.log('TG', d.ok ? 'OK '+d.result.message_id : JSON.stringify(d));
+  }catch(e){ console.log('TG ERR', e.message)}
 }
 
 async function analyze(mint){
-  // Esperar 12s para que Pump indexe holders reales
   await new Promise(r=>setTimeout(r,12000));
   try{
     const res = await fetch(`https://frontend-api-v3.pump.fun/coins/${mint}`, {headers:{'User-Agent':'Mozilla/5.0'}});
@@ -36,18 +37,15 @@ async function analyze(mint){
     const top = c.top_10_holders ?? 100;
     const holders = c.num_holders ?? 0;
     const mc = c.usd_market_cap ?? 0;
-    
     if(holders < 3 || mc < 1000 || mc > 50000) return;
     if(top > stats.top_max) return;
-    
-    console.log(`CHECK ${c.symbol} Hold:${holders} Top:${top.toFixed(1)}% MC:${(mc/1000).toFixed(1)}k`);
-    
+    console.log(`CHECK ${c.symbol} H:${holders} Top:${top.toFixed(1)}%`);
     const score = Math.round(100 - top*1.5 + holders*0.5);
     if(!pendingBest || score > pendingBest._score){
       pendingBest = c;
       pendingBest._score = score;
       pendingBest._top = top;
-      console.log(`>>> NUEVA MEJOR ${c.symbol} Score:${score}`);
+      console.log(`>>> CANDIDATA ${c.symbol} Score:${score}`);
     }
   }catch(e){}
 }
@@ -66,42 +64,47 @@ async function scan(){
   }catch(e){ console.log('scan err', e.message)}
 }
 
-// TIMER 2 MINUTOS CON AVANCE
 setInterval(async ()=>{
   const prec = stats.total ? ((stats.buenas/stats.total)*100).toFixed(1) : 0;
-  
   if(!pendingBest){
-    await send(`⏳ <b>2MIN - Sin candidata perfecta</b>\n\n🔍 Filtro: Top < ${stats.top_max}% | Holders > 3\n📊 <b>Avance IA:</b> ${stats.buenas}/${stats.total} | Prec: ${prec}%\nHora: ${new Date().toLocaleTimeString()}\n\nSigo escaneando...`, 'So11111111111111111111111111111111111111112');
+    await send(`⏳ 2MIN - Sin candidata perfecta
+
+Filtro: Top menor a ${stats.top_max}% | Holders mayor a 3
+Avance IA: ${stats.buenas}/${stats.total} | Prec: ${prec}%
+Hora: ${new Date().toLocaleTimeString()}
+
+Sigo escaneando...`, 'So11111111111111111111111111111111111111112');
     return;
   }
-  
   const c = pendingBest;
   pendingBest = null;
-  const msg = `🧠 <b>TOP 2MIN - Score ${c._score}/100</b>
+  const msg = `🧠 TOP 2MIN - Score ${c._score}/100
 
-🚀 <b>${c.name}</b> $${c.symbol}
-💰 MC: <b>$${(c.usd_market_cap/1000).toFixed(1)}k</b>
-👥 Holders: <b>${c.num_holders}</b>
-👑 Top10: <b>${c._top.toFixed(1)}%</b>
+🚀 ${c.name} $${c.symbol}
+💰 MC: $${(c.usd_market_cap/1000).toFixed(1)}k
+👥 Holders: ${c.num_holders}
+👑 Top10: ${c._top.toFixed(1)}%
 
-📈 <b>Avance Entrenamiento:</b>
+📈 Avance Entrenamiento:
 Analizadas: ${stats.total}
 Aciertos: ${stats.buenas}
-Precisión: ${prec}%
-Filtro actual: Top < ${stats.top_max}%
+Precision: ${prec}%
+Filtro: Top menor a ${stats.top_max}%
 
-<code>${c.mint}</code>`;
+${c.mint}`;
   
   await send(msg, c.mint);
 }, 120000);
 
-app.get('/', (req,res)=> res.send('Vaerum LIVE 2MIN'));
+app.get('/', (req,res)=> res.send('Vaerum LIVE'));
 app.get('/test', async (req,res)=>{ await send(`✅ TEST OK ${new Date().toLocaleTimeString()}`, 'So11111111111111111111111111111111111111112'); res.send('ok'); });
 
 app.listen(process.env.PORT||10000, ()=>{
-  console.log('VAERUM 2MIN LIVE');
+  console.log('VAERUM FIX < CORREGIDO');
   setInterval(scan, 5000);
   scan();
-  setTimeout(()=> send(`🚀 <b>Vaerum 2MIN Activo</b>\nTe mando la mejor cada 2 min con avance.\nFiltro: Top < ${stats.top_max}%`, 'So11111111111111111111111111111111111111112'), 4000);
+  setTimeout(()=> send(`🚀 Vaerum 2MIN Activo FIX
+Te mando la mejor cada 2 min con avance.
+Filtro: Top menor a ${stats.top_max}%`, 'So11111111111111111111111111111111111111112'), 4000);
   setInterval(()=> fetch('https://'+process.env.RENDER_EXTERNAL_HOSTNAME).catch(()=>{}), 55000);
 });
