@@ -5,7 +5,7 @@ const CHAT = process.env.CHAT_ID;
 
 let seen = new Set();
 let pendingBest = null;
-let stats = { total:0, buenas:0, top_max:30 };
+let stats = { total:0, buenas:0, top_max:55 };
 
 async function send(msg, mint){
   try{
