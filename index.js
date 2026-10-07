@@ -5,49 +5,57 @@ app.use(express.json());
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const seen = new Set(); // para no repetir la misma moneda
+const seen = new Set();
 
 async function sendToTelegram(text) {
-  if (!TELEGRAM_TOKEN || !CHAT_ID) return;
-  try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: CHAT_ID, text: text, parse_mode: 'HTML' })
-    });
-  } catch (e) {}
+  if (!TELEGRAM_TOKEN ||!CHAT_ID) return;
+  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: CHAT_ID, text: text, parse_mode: 'HTML', disable_web_page_preview: true })
+  }).catch(()=>{});
 }
 
-app.get('/', (req,res) => res.send('Vaerum Online + TG - FILTRO ON'));
+app.get('/', (req,res) => res.send('Vaerum Online + TG - PRO v3'));
 
 app.post('/webhook', async (req,res) => {
+  res.sendStatus(200);
   try {
     for (const tx of req.body) {
-      if (!tx.description) continue;
-      const mint = tx.tokenTransfers?.[0]?.mint || 'N/A';
-      
-      // 1. No repetir la misma moneda
-      if (seen.has(mint)) continue;
+      const mint = tx.tokenTransfers?.[0]?.mint;
+      if (!mint || seen.has(mint)) continue;
+      if (!mint.endsWith('pump')) continue; // solo pump.fun
+
       seen.add(mint);
-      if (seen.size > 500) seen.clear();
+      if (seen.size > 1000) seen.clear();
 
-      // 2. FILTRO ANTI-SPAM: solo si tiene liquidez decente
-      // Si la descripción dice que tiene menos de 100 SOL, lo ignoramos
-      const desc = tx.description.toLowerCase();
-      // Ignora estafas muy obvias
-      if (desc.includes('0.0') && !desc.includes('sol')) continue;
+      // Esperamos 8 seg para que Dexscreener la lea
+      await new Promise(r => setTimeout(r, 8000));
 
-      const msg = `🚀 <b>VAERUM ALERT</b>\n\n${tx.description}\n\n<b>MINT:</b> <code>${mint}</code>\n\n<a href="https://dexscreener.com/solana/${mint}">Dexscreener</a> | <a href="https://photon-sol.tinyastro.io/en/lp/${mint}">Photon</a>`;
+      try {
+        const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+        const j = await r.json();
+        const pair = j.pairs?.[0];
+        if (!pair) continue;
 
-      await sendToTelegram(msg);
-      
-      // 3. Cooldown: espera 20 segundos entre alertas para no spamear
-      await new Promise(r => setTimeout(r, 20000));
+        const mcap = pair.fdv || 0;
+        const liq = pair.liquidity?.usd || 0;
+
+        // FILTRO: si no vale al menos $10k, no te molesta
+        if (mcap < 10000) continue;
+        if (liq < 3000) continue;
+
+        const msg = `🚀 <b>${pair.baseToken.name} (${pair.baseToken.symbol})</b>\n\n💰 <b>MCap:</b> $${mcap.toLocaleString()}\n💧 <b>Liq:</b> $${liq.toLocaleString()}\n💵 <b>Precio:</b> $${pair.priceUsd}\n\n<b>MINT:</b> <code>${mint}</code>\n\n<a href="https://dexscreener.com/solana/${mint}">📊 Dexscreener</a> | <a href="https://photon-sol.tinyastro.io/en/lp/${mint}">⚡️ Photon</a> | <a href="https://pump.fun/${mint}">Pump</a>`;
+
+        await sendToTelegram(msg);
+      } catch(e){}
     }
-    res.sendStatus(200);
-  } catch (e) {
-    res.sendStatus(200);
-  }
+  } catch(e){}
 });
 
-app.listen(PORT, () => console.log('Vaerum con filtro ON'));
+app.listen(PORT, () => console.log('PRO v3 ON'));
+
+// Anti-sleep Render gratis
+setInterval(() => {
+  fetch(`https://vaerum-scaner-2.onrender.com`).catch(()=>{});
+}, 240000);
