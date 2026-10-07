@@ -1,0 +1,7 @@
+{
+  "name": "vaerum-scanner",
+  "version": "1.0.0",
+  "description": "Receptor de webhooks de Helius para Solana",
+  "main": "index.js",
+  "license": "ISC"
+}
