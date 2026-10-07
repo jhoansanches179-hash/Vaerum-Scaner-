@@ -39,7 +39,7 @@ app.post('/webhook', async (req,res) => {
     for (const tx of req.body) {
       const mint = tx.tokenTransfers?.[0]?.mint;
       if (!mint || seen.has(mint)) continue;
-      if (!mint.endsWith('pump')) continue;
+      
 
       await new Promise(r => setTimeout(r, 8000));
       try {
