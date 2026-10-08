@@ -3,76 +3,74 @@ const app = express();
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const CHAT = process.env.CHAT_ID;
 
+const F = {
+  TOP_MAX: 30,
+  MC_MIN: 15000,
+  VOL_MIN: 25000,
+  EDAD_MAX_MIN: 160
+};
+const FRASE = "Sin pérdida no hay lección, sin sacrificio no hay recompensa, sin miedo no hay valor.";
 let seen = new Set();
-let pendingBest = null;
-let stats = { total:0, buenas:0, top_max:55 };
 
-async function send(msg, mint){
-  try{
-    const isReal = mint && mint !== 'So11111111111111111111111111111111111111112' && mint.length > 30;
-    const payload = { chat_id:CHAT, text:msg, disable_web_page_preview:true };
-    if(isReal){
-      payload.reply_markup = { inline_keyboard:[[{text:"🚀 Axiom", url:`https://axiom.trade/t/${mint}`},{text:"💊 Pump", url:`https://pump.fun/coin/${mint}` }]] };
+async function sendWithImage(c){
+  const mc = c.usd_market_cap ?? 0;
+  const vol = c.volume_24h ?? 0;
+  const holders = c.num_holders ?? 0;
+  const top = c.top_10_holders ?? 0;
+  const dev = c.dev_holding ?? 0;
+  const img = c.image_uri || c.metadata_uri || "";
+
+  const caption = `🔥 ${c.name} $${c.symbol}
+
+💰 MC: $${(mc/1000).toFixed(1)}k
+📊 Vol: $${(vol/1000).toFixed(1)}k | Liq: $${((c.liquidity||0)/1000).toFixed(1)}k
+👥 Holders: ${holders}
+🐋 Top10: ${top.toFixed(1)}% | Dev: ${dev.toFixed(1)}%
+
+📅 Edad: ${((Date.now()-c.created_timestamp)/60000).toFixed(0)} min
+🔗 ${c.mint}
+
+_${FRASE}_`;
+
+  const body = {
+    chat_id: CHAT,
+    photo: img,
+    caption: caption,
+    reply_markup: {
+      inline_keyboard: [[
+        {text:"🚀 Axiom", url:`https://axiom.trade/t/${c.mint}`},
+        {text:"💊 Pump", url:`https://pump.fun/coin/${c.mint}`}
+      ]]
     }
-    const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{
+  };
+
+  try{
+    let r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`,{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
+      body: JSON.stringify(body)
     });
-    const d = await r.json();
-    console.log('TG', d.ok ? 'OK '+d.result.message_id : JSON.stringify(d));
-  }catch(e){ console.log('TG ERR', e.message)}
+    let d = await r.json();
+    if(!d.ok){ // si falla la imagen, manda solo texto
+      await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({chat_id:CHAT, text:caption, reply_markup:body.reply_markup})
+      });
+    }
+  }catch(e){ console.log(e.message)}
 }
 
-async function analyze(mint){
-  await new Promise(r=>setTimeout(r,12000));
+async function check(mint){
+  await new Promise(r=>setTimeout(r,10000));
   try{
     const res = await fetch(`https://frontend-api-v3.pump.fun/coins/${mint}`, {headers:{'User-Agent':'Mozilla/5.0'}});
     const c = await res.json();
-    const top = c.top_10_holders ?? 100;
-    const holders = c.num_holders ?? 0;
-    const mc = c.usd_market_cap ?? 0;
-    if(holders < 3 || mc < 1000 || mc > 50000) return;
-    if(top > stats.top_max) return;
-    console.log(`CHECK ${c.symbol} H:${holders} Top:${top.toFixed(1)}%`);
-    const score = Math.round(100 - top*1.5 + holders*0.5);
-    if(!pendingBest || score > pendingBest._score){
-      pendingBest = c; pendingBest._score = score; pendingBest._top = top;
-      console.log(`CANDIDATA ${c.symbol} Score:${score}`);
-    }
+    if((c.top_10_holders ?? 100) > F.TOP_MAX) return;
+    if((c.usd_market_cap ?? 0) < F.MC_MIN) return;
+    if((c.volume_24h ?? 0) < F.VOL_MIN) return;
+    await sendWithImage(c);
   }catch(e){}
 }
 
 async function scan(){
   try{
-    const res = await fetch('https://frontend-api-v3.pump.fun/coins?offset=0&limit=12&sort=created_timestamp&order=DESC', {headers:{'User-Agent':'Mozilla/5.0'}});
-    const data = await res.json();
-    const coins = Array.isArray(data) ? data : (data.coins || []);
-    for(let c of coins){
-      if(!c.mint || seen.has(c.mint)) continue;
-      seen.add(c.mint);
-      if(Date.now() - c.created_timestamp > 90000) continue;
-      analyze(c.mint);
-    }
-  }catch(e){ console.log('scan err', e.message)}
-}
-
-setInterval(async ()=>{
-  console.log('TIMER 2MIN');
-  if(!pendingBest){
-    await send(`2MIN - Sigo buscando. Filtro: Top menor a ${stats.top_max}%. Hora: ${new Date().toLocaleTimeString()}`, 'So11111111111111111111111111111111111111112');
-    return;
-  }
-  const c = pendingBest; pendingBest = null;
-  await send(`TOP 2MIN - Score ${c._score}/100 - ${c.name} $${c.symbol} - MC: $${(c.usd_market_cap/1000).toFixed(1)}k - Holders: ${c.num_holders} - Top10: ${c._top.toFixed(1)}% - ${c.mint}`, c.mint);
-}, 120000);
-
-app.get('/', (req,res)=> res.send('Vaerum LIVE'));
-app.get('/test', async (req,res)=>{ await send(`TEST OK ${new Date().toLocaleTimeString()}`, 'So11111111111111111111111111111111111111112'); res.send('ok'); });
-
-app.listen(process.env.PORT||10000, ()=>{
-  console.log('VAERUM LIVE FIXED');
-  setInterval(scan, 5000);
-  scan();
-  setTimeout(()=> send(`Vaerum 2MIN Activo - Te mando la mejor cada 2 min`, 'So11111111111111111111111111111111111111112'), 4000);
-  setInterval(()=> fetch('https://'+process.env.RENDER_EXTERNAL_HOSTNAME).catch(()=>{}), 55000);
-});
+    const
