@@ -1,4 +1,3 @@
-
 const express = require('express');
 const app = express();
 const TOKEN = process.env.TELEGRAM_TOKEN;
@@ -62,4 +61,40 @@ async function check(mint){
   try{
     let res = await fetch(`https://frontend-api-v3.pump.fun/coins/${mint}`,{headers:{'User-Agent':'Mozilla/5.0'}});
     let c = await res.json();
-    if((c.top_10
+    if((c.top_10_holders||100) > F.TOP_MAX) return;
+    if((c.dev_holding||0) > F.DEV_MAX) return;
+    if((c.insiders_holding||0) > F.INSIDERS_MAX) return;
+    if((c.usd_market_cap||0) < F.MC_MIN) return;
+    if((c.volume_24h||0) < F.VOL_MIN) return;
+    console.log(`✅ MIGRADA PASA: ${c.symbol}`);
+    await sendPhoto(c);
+  }catch(e){}
+}
+
+async function scanMigradas(){
+  try{
+    // Endpoint de MIGRADAS - ordenadas por ultimo trade
+    let url = `https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=last_trade_timestamp&order=DESC&includeNsfw=false`;
+    let res = await fetch(url,{headers:{'User-Agent':'Mozilla/5.0'}});
+    let j = await res.json();
+    let coins = j.coins || j || [];
+    
+    // Solo migradas (complete = true)
+    let migradas = coins.filter(c => c.complete || c.raydium_pool || c.migrated);
+    console.log(`Scan migradas: ${coins.length} total, ${migradas.length} migradas`);
+
+    for(let c of migradas){
+      if(!c.mint || seen.has(c.mint)) continue;
+      seen.add(c.mint);
+      check(c.mint);
+    }
+  }catch(e){ console.log("scan error", e.message)}
+}
+
+app.get('/',(req,res)=>res.send('Vaerum Migradas LIVE'));
+app.listen(process.env.PORT||10000,()=>{
+  console.log('LIVE MIGRADAS');
+  sendTest();
+  setInterval(scanMigradas, 8000);
+  scanMigradas();
+});
