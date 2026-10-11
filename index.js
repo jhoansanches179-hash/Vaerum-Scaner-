@@ -1,3 +1,4 @@
+require('http').createServer((req,res)=>res.end('Veruam Online')).listen(process.env.PORT||3000)
 require('dotenv').config();
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const axios = require('axios');
