@@ -1,18 +1,21 @@
-require('http').createServer((_,r)=>r.end('OK')).listen(process.env.PORT||3000);
+require('http').createServer((_,r)=>r.end('Vaerum OK')).listen(process.env.PORT||3000);
+const {Client,GatewayIntentBits,REST,Routes}=require('discord.js');
 const axios=require('axios');
-console.log(">> TEST TOKEN");
-console.log("LEN",process.env.DISCORD_TOKEN?.length);
-(async()=>{
-  try{
-    const r=await axios.get("https://discord.com/api/v10/users/@me",{headers:{Authorization:`Bot ${process.env.DISCORD_TOKEN}`}});
-    console.log("✅ TOKEN VALIDO:",r.data.username+"#"+r.data.discriminator);
-  }catch(e){
-    console.log("❌ TOKEN INVALIDO:",e.response?.status,e.response?.data?.message||e.message);
-  }
-  try{
-    const r2=await axios.get("https://openrouter.ai/api/v1/auth/key",{headers:{Authorization:`Bearer ${process.env.OPENROUTER_KEY}`}});
-    console.log("✅ OPENROUTER VALIDO:",r2.data.data?.label||"ok");
-  }catch(e){
-    console.log("❌ OPENROUTER INVALIDO:",e.response?.data||e.message);
-  }
-})();
+const client=new Client({intents:[GatewayIntentBits.Guilds]});
+console.log(">> VAERUM FINAL LEN",process.env.DISCORD_TOKEN?.length);
+client.on('ready',async()=>{
+ console.log("✅ ONLINE "+client.user.tag);
+ const rest=new REST({version:'10'}).setToken(process.env.DISCORD_TOKEN);
+ await rest.put(Routes.applicationCommands(client.user.id),{body:[{name:'ask',description:'Pregunta a Vaerum IA',options:[{name:'pregunta',description:'Tu pregunta',type:3,required:true}]}]});
+ console.log("✅ /ask listo");
+});
+client.on('interactionCreate',async i=>{
+ if(!i.isChatInputCommand())return;
+ await i.deferReply();
+ const q=i.options.getString('pregunta');
+ try{
+  const r=await axios.post("https://openrouter.ai/api/v1/chat/completions",{model:"meta-llama/llama-3.1-8b-instruct:free",messages:[{role:"system",content:"Eres Vaerum, experto memecoins peruano, responde corto y util."},{role:"user",content:q}]},{headers:{Authorization:`Bearer ${process.env.OPENROUTER_KEY}`}});
+  await i.editReply(r.data.choices[0].message.content.slice(0,1900));
+ }catch(e){await i.editReply("Error IA: "+(e.response?.data?.error?.message||e.message));}
+});
+client.login(process.env.DISCORD_TOKEN).then(()=>console.log("Login OK esperando ready...")).catch(e=>console.log("LOGIN FAIL",e.code,e.message));
