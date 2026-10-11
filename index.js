@@ -1,100 +1,63 @@
-const express = require('express');
-const app = express();
-const TOKEN = process.env.TELEGRAM_TOKEN;
-const CHAT = process.env.CHAT_ID;
+require('dotenv').config();
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
+const axios = require('axios');
 
-const F = {
-  TOP_MAX: 30,
-  DEV_MAX: 6,
-  INSIDERS_MAX: 6,
-  MC_MIN: 15000,
-  VOL_MIN: 25000,
-  LIQ_MIN: 20000,
-  EDAD_MAX: 160
-};
-const FRASE = "Sin perdida no hay leccion, sin sacrificio no hay recompensa, sin miedo no hay valor.";
-let seen = new Set();
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-async function sendTest(){
-  await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({chat_id:CHAT, text:`✅ Vaerum MIGRADAS LIVE\nTop<${F.TOP_MAX}% Dev<${F.DEV_MAX}% Vol>${F.VOL_MIN} Liq>${F.LIQ_MIN}\n\n${FRASE}`})
-  });
-}
+const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN || process.env.DISCORDO_TOKEN || process.env.DISCORD_;
 
-async function sendPhoto(c){
-  const cap = `🔥 MIGRADA $${c.symbol} - ${c.name}
-
-💰 MC: $${(c.usd_market_cap/1000).toFixed(1)}k
-📊 Vol: $${((c.volume_24h||0)/1000).toFixed(1)}k
-💧 Liq: $${((c.liquidity||c.usd_market_cap||0)/1000).toFixed(1)}k
-👥 Holders: ${c.num_holders || 0}
-🐋 Top10: ${(c.top_10_holders||0).toFixed(1)}% | Dev: ${(c.dev_holding||0).toFixed(1)}%
-
-${c.mint}
-
-${FRASE}`;
-  const body = {
-    chat_id: CHAT,
-    photo: c.image_uri,
-    caption: cap,
-    reply_markup: { inline_keyboard: [[
-      {text:"🚀 Axiom", url:`https://axiom.trade/t/${c.mint}`},
-      {text:"💊 Pump", url:`https://pump.fun/coin/${c.mint}`},
-      {text:"📈 Raydium", url:`https://raydium.io/swap/?inputMint=sol&outputMint=${c.mint}`}
-    ]]}
-  };
-  let r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`,{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(body)
-  });
-  let d = await r.json();
-  if(!d.ok){
-    await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({chat_id:CHAT, text:cap, reply_markup:body.reply_markup})
+// Función cerebro Vaerum
+async function preguntarAVaerum(pregunta) {
+  try {
+    const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+      model: "meta-llama/llama-3.1-8b-instruct:free",
+      messages: [
+        { role: "system", content: "Eres Vaerum, asistente experto en memecoins de la comunidad Vaerum en Perú. Respondes simple, sin tecnicismos, en español. Sabes de Market Cap, Liquidez, Volumen, Supply y % del Dev." },
+        { role: "user", content: pregunta }
+      ]
+    }, {
+      headers: {
+        "Authorization": `Bearer ${OPENROUTER_KEY}`,
+        "Content-Type": "application/json"
+      }
     });
+    return res.data.choices[0].message.content;
+  } catch (e) {
+    console.log(e.response?.data || e.message);
+    return "Uy bro, el cerebro de Vaerum está fallando un toque: " + (e.response?.data?.error?.message || e.message);
   }
 }
 
-async function check(mint){
-  try{
-    let res = await fetch(`https://frontend-api-v3.pump.fun/coins/${mint}`,{headers:{'User-Agent':'Mozilla/5.0'}});
-    let c = await res.json();
-    if((c.top_10_holders||100) > F.TOP_MAX) return;
-    if((c.dev_holding||0) > F.DEV_MAX) return;
-    if((c.insiders_holding||0) > F.INSIDERS_MAX) return;
-    if((c.usd_market_cap||0) < F.MC_MIN) return;
-    if((c.volume_24h||0) < F.VOL_MIN) return;
-    console.log(`✅ MIGRADA PASA: ${c.symbol}`);
-    await sendPhoto(c);
-  }catch(e){}
-}
+// Comandos
+const commands = [
+  new SlashCommandBuilder().setName('ask').setDescription('Pregúntale a Vaerum').addStringOption(o => o.setName('pregunta').setDescription('Tu pregunta').setRequired(true)),
+  new SlashCommandBuilder().setName('filtrar').setDescription('Filtra memecoin por MarketCap, Liquidez, Dev etc').addStringOption(o => o.setName('moneda').setDescription('Contrato o nombre').setRequired(true)),
+].map(c => c.toJSON());
 
-async function scanMigradas(){
-  try{
-    // Endpoint de MIGRADAS - ordenadas por ultimo trade
-    let url = `https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=last_trade_timestamp&order=DESC&includeNsfw=false`;
-    let res = await fetch(url,{headers:{'User-Agent':'Mozilla/5.0'}});
-    let j = await res.json();
-    let coins = j.coins || j || [];
-    
-    // Solo migradas (complete = true)
-    let migradas = coins.filter(c => c.complete || c.raydium_pool || c.migrated);
-    console.log(`Scan migradas: ${coins.length} total, ${migradas.length} migradas`);
-
-    for(let c of migradas){
-      if(!c.mint || seen.has(c.mint)) continue;
-      seen.add(c.mint);
-      check(c.mint);
-    }
-  }catch(e){ console.log("scan error", e.message)}
-}
-
-app.get('/',(req,res)=>res.send('Vaerum Migradas LIVE'));
-app.listen(process.env.PORT||10000,()=>{
-  console.log('LIVE MIGRADAS');
-  sendTest();
-  setInterval(scanMigradas, 8000);
-  scanMigradas();
+client.once('ready', async () => {
+  console.log(`✅ Vaerum conectado como ${client.user.tag}`);
+  const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+  try {
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log('Comandos registrados');
+  } catch (e) { console.log(e); }
 });
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  await interaction.deferReply();
+
+  if (interaction.commandName === 'ask') {
+    const pregunta = interaction.options.getString('pregunta');
+    const resp = await preguntarAVaerum(pregunta);
+    await interaction.editReply(`**> ${pregunta}**\n\n${resp}`);
+  }
+
+  if (interaction.commandName === 'filtrar') {
+    const moneda = interaction.options.getString('moneda');
+    await interaction.editReply(`🔍 Analizando **${moneda}** con filtros Vaerum...\nMarket Cap / Supply / Volumen / Liquidez / % Dev\n(Conecta aquí tu lógica de scanner)`);
+  }
+});
+
+client.login(DISCORD_TOKEN);
