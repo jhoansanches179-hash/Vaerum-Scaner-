@@ -17,53 +17,29 @@ const commands = [{
 
 async function registerAll() {
   console.log('Registrando comandos via fetch...');
-  // Guild
-  const gRes = await fetch(`https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`, {
+  const url = `https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`;
+  const res = await fetch(url, {
     method: 'PUT',
     headers: { 'Authorization': `Bot ${TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(commands)
   });
-  const gData = await gRes.json();
-  console.log('GUILD RESP', gRes.status, JSON.stringify(gData).slice(0,500));
-  if (!gRes.ok) throw new Error('Guild fail: '+JSON.stringify(gData));
-
-  // Global opcional
-  const glRes = await fetch(`https://discord.com/api/v10/applications/${APP_ID}/commands`, {
-    method: 'PUT',
-    headers: { 'Authorization': `Bot ${TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(commands)
-  });
-  const glData = await glRes.json();
-  console.log('GLOBAL RESP', glRes.status, JSON.stringify(glData).slice(0,500));
-  return gData;
+  const text = await res.text();
+  console.log('GUILD STATUS', res.status, 'BODY', text.slice(0,1000));
+  if (!res.ok) throw new Error(`Discord ${res.status}: ${text.slice(0,500)}`);
+  return JSON.parse(text);
 }
 
 const app = express();
-
-app.get('/', (req,res) => res.send('Vaerum ONLINE - /test /register /debug'));
-
-app.get('/test', (req,res) => res.json({ ok:true, APP_ID, GUILD_ID, token_len: TOKEN?.length }));
-
-app.get('/debug', async (req,res) => {
-  try {
-    const r = await fetch(`https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`, {
-      headers: { 'Authorization': `Bot ${TOKEN}` }
-    });
-    const data = await r.json();
-    res.json({ ok:true, status:r.status, guild_commands:data, APP_ID, GUILD_ID });
-  } catch(e){ res.status(500).json({ ok:false, error:e.message }); }
-});
-
+app.get('/', (req,res) => res.send('Vaerum ONLINE - /register'));
+app.get('/test', (req,res) => res.json({ ok:true, APP_ID, GUILD_ID, token_len: TOKEN?.length, token_start: TOKEN?.slice(0,10) }));
 app.get('/register', async (req,res) => {
   try {
     const data = await registerAll();
     res.json({ ok:true, registered: data.map(c=>c.name) });
   } catch(e){
-    console.error('REGISTER FAIL', e.message);
     res.status(500).json({ ok:false, error:e.message });
   }
 });
-
 app.post('/interactions', verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
   const i = req.body;
   if (i.type === 1) return res.send({ type: 1 });
@@ -82,16 +58,7 @@ app.post('/interactions', verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: respuesta.slice(0,1900) })
       });
-    } catch(err){
-      await fetch(`https://discord.com/api/v10/webhooks/${APP_ID}/${i.token}/messages/@original`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: 'Error: '+err.message })
-      });
-    }
+    } catch(err){}
   }
 });
-
-app.listen(process.env.PORT || 10000, async () => {
-  console.log('HTTP LISTEN', process.env.PORT || 10000);
-  try { await registerAll(); console.log('AUTO REGISTER OK'); } catch(e){ console.error('Auto register fail:', e.message); }
-});
+app.listen(process.env.PORT || 10000, () => console.log('HTTP LISTEN'));
