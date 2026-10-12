@@ -7,44 +7,55 @@ const APP_ID = process.env.DISCORD_APPLICATION_ID?.trim();
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY?.trim();
 const GUILD_ID = (process.env.GUILD_ID || '1558832004986966059').trim();
 
-console.log('BOOT', { APP: APP_ID, GUILD: GUILD_ID });
-
 const commands = [{
   name: 'ask',
   description: 'Preguntale algo a Vaerum IA',
   options: [{ name: 'pregunta', description: 'Tu pregunta', type: 3, required: true }]
 }];
 
-async function registerAll() {
-  const headers = {
-    'Authorization': `Bot ${TOKEN}`,
-    'Content-Type': 'application/json',
-    'User-Agent': 'DiscordBot (https://discord.com, 10) VaerumBot'
-  };
-  const url = `https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`;
-  const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(commands) });
-  const text = await res.text();
-  console.log('GUILD STATUS', res.status, text.slice(0,1000));
-  if (res.status === 429) {
-    const data = JSON.parse(text || '{}');
-    const wait = (data.retry_after || 60);
-    throw new Error(`Rate limited por Cloudflare, espera ${wait} seg: ${text.slice(0,300)}`);
-  }
-  if (!res.ok) throw new Error(`Discord ${res.status}: ${text.slice(0,500)}`);
-  return JSON.parse(text);
-}
-
 const app = express();
-app.get('/', (req,res) => res.send('Vaerum ONLINE - espera 10 min antes de /register'));
-app.get('/test', (req,res) => res.json({ ok:true, APP_ID, GUILD_ID }));
+app.get('/', (req,res) => res.send('Vaerum ONLINE'));
+
+// PAGINA PARA REGISTRAR DESDE TU CELULAR - USA TU IP, NO LA DE RENDER
+app.get('/manual', (req,res) => {
+  res.send(`
+  <html><body style="font-family:sans-serif;padding:20px">
+  <h2>Registrar /ask desde tu IP</h2>
+  <p>1. Dale al botón, usa TU internet no el de Render y Cloudflare lo dejará pasar.</p>
+  <button onclick="go()" style="padding:15px 30px;font-size:18px">REGISTRAR AHORA</button>
+  <pre id="out" style="background:#111;color:#0f0;padding:10px;margin-top:20px"></pre>
+  <script>
+  async function go(){
+    document.getElementById('out').textContent='Registrando...';
+    const url = 'https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands';
+    const r = await fetch(url, {
+      method:'PUT',
+      headers:{
+        'Authorization':'Bot ${TOKEN}',
+        'Content-Type':'application/json'
+      },
+      body: JSON.stringify(${JSON.stringify(commands)})
+    });
+    const t = await r.text();
+    document.getElementById('out').textContent = 'STATUS '+r.status+'\\n'+t;
+  }
+  </script>
+  </body></html>
+  `);
+});
+
 app.get('/register', async (req,res) => {
   try {
-    const data = await registerAll();
-    res.json({ ok:true, registered: data.map(c=>c.name), msg: 'Ahora cierra Discord y abre, escribe /' });
-  } catch(e){
-    res.status(500).json({ ok:false, error:e.message });
-  }
+    const r = await fetch(`https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`,{
+      method:'PUT',
+      headers:{'Authorization':`Bot ${TOKEN}`,'Content-Type':'application/json','User-Agent':'DiscordBot (https://discord.com, 10)'},
+      body: JSON.stringify(commands)
+    });
+    const t = await r.text();
+    res.send(`STATUS ${r.status} <br><pre>${t.slice(0,2000)}</pre>`);
+  } catch(e){ res.send(e.message) }
 });
+
 app.post('/interactions', verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
   const i = req.body;
   if (i.type === 1) return res.send({ type: 1 });
@@ -63,7 +74,7 @@ app.post('/interactions', verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: respuesta.slice(0,1900) })
       });
-    } catch(err){}
+    } catch(e){}
   }
 });
-app.listen(process.env.PORT || 10000, () => console.log('HTTP LISTEN'));
+app.listen(process.env.PORT || 10000);
