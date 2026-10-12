@@ -1,15 +1,12 @@
-import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
+import { REST, Routes } from 'discord.js';
 import express from 'express';
 import { verifyKeyMiddleware } from 'discord-interactions';
-import fetch from 'node-fetch';
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
 const APP_ID = process.env.DISCORD_APPLICATION_ID;
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
-const GUILD_ID = process.env.GUILD_ID || '1558832004986966059';
-
-console.log('LEN', TOKEN?.length, 'APP', APP_ID, 'GUILD', GUILD_ID);
+const GUILD_ID = (process.env.GUILD_ID || '1558832004986966059').trim();
 
 const commands = [
   {
@@ -19,27 +16,32 @@ const commands = [
   }
 ];
 
-async function register() {
+async function registerAll() {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
-  try {
-    await rest.put(Routes.applicationGuildCommands(APP_ID, GUILD_ID), { body: commands });
-    console.log('SLASH /ask REGISTRADO EN GUILD', GUILD_ID);
-    await rest.put(Routes.applicationCommands(APP_ID), { body: commands });
-    console.log('SLASH /ask REGISTRADO GLOBAL');
-  } catch (e) {
-    console.error('Error registro', e.message, e.rawError);
-  }
+  const res1 = await rest.put(Routes.applicationGuildCommands(APP_ID, GUILD_ID), { body: commands });
+  console.log('OK GUILD REGISTERED', GUILD_ID, res1.length);
+  const res2 = await rest.put(Routes.applicationCommands(APP_ID), { body: commands });
+  console.log('OK GLOBAL REGISTERED', res2.length);
+  return { guild: res1, global: res2 };
 }
-register();
 
 const app = express();
-app.get('/', (req,res)=> res.send('Vaerum ONLINE'));
+
+app.get('/register', async (req,res)=>{
+  try {
+    const r = await registerAll();
+    res.json({ ok:true, guild_id: GUILD_ID, commands: r.guild.map(c=>c.name) });
+  } catch(e){
+    console.error('REGISTER FAIL', e);
+    res.status(500).json({ ok:false, error: e.message, raw: e.rawError || e });
+  }
+});
+
+app.get('/', (req,res)=> res.send('Vaerum ONLINE - ve a /register para activar /ask'));
 
 app.post('/interactions', verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
   const interaction = req.body;
-  if (interaction.type === 1) {
-    return res.send({ type: 1 });
-  }
+  if (interaction.type === 1) return res.send({ type: 1 });
   if (interaction.type === 2 && interaction.data.name === 'ask') {
     const pregunta = interaction.data.options?.[0]?.value || 'Hola';
     res.send({ type: 5 });
@@ -56,17 +58,17 @@ app.post('/interactions', verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
         })
       });
       const data = await aiRes.json();
-      const respuesta = data.choices?.[0]?.message?.content || 'No pude responder, Jhoan.';
+      const respuesta = data.choices?.[0]?.message?.content || 'No pude responder.';
       await fetch(`https://discord.com/api/v10/webhooks/${APP_ID}/${interaction.token}/messages/@original`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: respuesta.slice(0, 1900) })
+        body: JSON.stringify({ content: respuesta.slice(0,1900) })
       });
     } catch (e) {
       await fetch(`https://discord.com/api/v10/webhooks/${APP_ID}/${interaction.token}/messages/@original`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: 'Error con la IA: ' + e.message })
+        body: JSON.stringify({ content: 'Error: '+e.message })
       });
     }
     return;
@@ -74,4 +76,7 @@ app.post('/interactions', verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log('HTTP LISTEN', PORT));
+app.listen(PORT, async ()=>{
+  console.log('HTTP LISTEN', PORT, 'GUILD', GUILD_ID);
+  try { await registerAll(); } catch(e){ console.error('auto register fail', e.message); }
+});
