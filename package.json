@@ -1,9 +1,13 @@
 {
-  "name": "vaerum-scaner-2",
+  "name": "vaerum-scanner",
   "version": "1.0.0",
   "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "express": "^4.18.2",
-    "discord-interactions": "^3.4.0"
+    "discord-interactions": "^4.0.0"
   }
 }
